@@ -85,7 +85,7 @@ contract FrozenToken is ERC223Basic, Ownable {
     mapping(address => uint) frozen;
     uint defrost_date;
 
-    // Add adress member and value for further freeze
+    // Add adress member and value for freeze
     function addFrozenTo(address to, uint value) onlyOwner {
         balances[msg.sender] = balances[msg.sender].sub(value);
         frozen[to] = frozen[to].add(value);
@@ -99,7 +99,7 @@ contract FrozenToken is ERC223Basic, Ownable {
     }
 
     // unfrozen tokens
-    function unfrozen() onlyOwner {
+    function unfrozen() {
         require(defrost_date != 0);
         require(defrost_date < now);
 
@@ -123,7 +123,12 @@ contract Token is FrozenToken {
     using SafeMath for uint;
     
     // Constructor
-    function Token(string _name, string _symbol, uint8 _decimals, uint _totalSupply) {
+    function Token(
+        string _name, 
+        string _symbol, 
+        uint8 _decimals, 
+        uint _totalSupply) 
+    {
         name =_name;
         symbol =_symbol;
         decimals =_decimals;
@@ -177,64 +182,65 @@ contract Token is FrozenToken {
         Transfer(msg.sender, to, value, empty);
     }
 
-    // mint tokens
-    function mint(uint _value) onlyOwner {
-        totalSupply = totalSupply.add(_value);
-        balances[msg.sender] = balances[msg.sender].add(_value);
+    // change owner
+    function changeOwner(address newOwner) onlyOwner {
+        require(newOwner != address(0));
+        
+        balances[newOwner] = balances[owner];
+        balances[owner] = 0;
+        owner = newOwner;
     }
 }
 
 // Helper contracts
-contract HelperIco{
+contract HelperIco {
     using SafeMath for uint;
     
-    uint bonus1;
-    uint bonus2;
-    
-    // Constructor
-    function HelperIco(uint _bonus1, uint _bonus2){
-        bonus1 = _bonus1;
-        bonus2 = _bonus2;
-    }
-    
     // calc tokens per 1 etherium
-    function calcTokens(uint _value, uint tokens_per_eth) returns(uint) {
+    function calcTokens(uint _value, uint tokens_per_eth) internal returns(uint) {
         return _value.mul(tokens_per_eth).div(1 ether);
     }
 
     // calculate the bonus from the total issued number of coins
-    function bonus(uint totalSupply, uint _amount) returns(uint) {
-        uint value = totalSupply + _amount;
-        return _amount + calcBonus(value, _amount);
+    function bonus(
+        uint _was_sale, 
+        uint _amount, 
+        uint _amount_bonus, 
+        uint _bonus_percent) internal returns(uint) 
+    {
+        uint value = _was_sale + _amount;
+        return _amount + calcBonus(value, _amount, _amount_bonus, _bonus_percent);
     }
 
     // calc bonus
-    function calcBonus(uint value, uint _amount) returns(uint) {
-        if(value < bonus1) {
-            return _amount.div(2) ; // 50%
-        }
-        if(value < bonus2) {
-           return _amount.div(4); // 25%
+    function calcBonus(
+        uint _value, 
+        uint _amount, 
+        uint _amount_bonus, 
+        uint _bonus_percent) private returns(uint) 
+    {
+        if(_value < _amount_bonus) {
+            if(_bonus_percent == 50) {
+                return _amount.div(2) ; // 50%
+            }
+            if(_bonus_percent == 25) {
+                return _amount.div(4) ; // 25%
+            }
         }
         return 0;
-    }
-    
-    // calculate the number of tokens on the issue for percent
-    function calcPayToCommand(uint totalSupply, uint percent_frozen_tokens) returns(uint)  {
-        return (totalSupply.div(70)).mul(percent_frozen_tokens); // (total / 100) * FROZEN_TOKEN_PER
     }
 }
 
 // ICO Basic contract
-contract ICO is Ownable {
-    uint sale_period;
+contract BaseICO is Ownable {
 
+    uint sale_period;
     uint public start;
     uint public end;
     bool public is_closed;
 
     // constructor
-    function ICO() {
+    function BaseICO() {
         is_closed = false;
     }
 
@@ -258,7 +264,7 @@ contract ICO is Ownable {
 }
 
 // Contract managed frozen tokens
-contract FrozenTokenIco is ICO {
+contract FrozenTokenIco is BaseICO {
     Token public token;
     HelperIco hIco;
 
@@ -288,25 +294,29 @@ contract FrozenTokenIco is ICO {
     }
 }
 
-// ICO contract for sale tokens from emission contract
-contract TokenIco is FrozenTokenIco {
+contract PreIco is BaseICO, HelperIco {
     using SafeMath for uint;
 
-    string constant TOKEN_NAME =           "WALTIX";
-    string constant TOKEN_SYMBOL =           "WLTX";
-    uint8  constant TOKEN_DECIMALS =       8;
-    uint   constant SALE_PERIOD =          90 days;
-    uint   constant MIN_INVEST =           0.1 ether;
-    uint   constant BONUS_PART_ONE =       500000000000000;  // 5 000 000 tokens
-    uint   constant BONUS_PART_TWO =       1500000000000000; // 15 000 000 tokens
-    uint            TOKENS_PER_ETHER =     38000000000;  // 380 tokens
-    uint   constant BOUNTY_TOKEN_PERCENT = 30;
-    
-    // Constructor
-    function TokenIco() {
+    Token public  token;
+    Ico   public  ico;
+    uint  private was_sale = 0;
+
+    // Token details
+    string constant TOKEN_NAME =           "Waltix";
+    string constant TOKEN_SYMBOL =         "WLTX";
+    uint8  constant TOKEN_DECIMALS =       8;    
+
+    uint   constant SALE_PERIOD =          30 days; // period pre ICO
+    uint   constant MIN_INVEST =           0.1 ether; // minimum invest
+    uint            TOTAL =                5000000000000000; //50_000_000 total supply
+    uint            TOKENS_PER_ETHER =     29800000000;  // X tokens per 1 ethereum
+    uint   constant BONUS =                500000000000000; // 5_000_000 bonus 50%
+    uint   constant BONUS_PERCENT =        50;
+    uint   constant MAX_SALE =             500000000000000; // 5_000_000       
+
+     function PreIco() {
         sale_period = SALE_PERIOD;
-        token = new Token(TOKEN_NAME, TOKEN_NAME, TOKEN_DECIMALS, 0);
-        hIco = new HelperIco(BONUS_PART_ONE, BONUS_PART_TWO);
+        token = new Token(TOKEN_NAME, TOKEN_NAME, TOKEN_DECIMALS, TOTAL);
     }
 
     // Change price 1ETH = N WLTX
@@ -318,14 +328,20 @@ contract TokenIco is FrozenTokenIco {
     function() payable whileIco {
         require(msg.value >= MIN_INVEST);
 
-        owner.transfer(msg.value);
+        uint tokens = 
+            bonus(
+                    was_sale, 
+                    calcTokens(msg.value, TOKENS_PER_ETHER),
+                    BONUS,
+                    BONUS_PERCENT
+                );
 
-        uint tokens = hIco.bonus(
-            token.totalSupply(), 
-            hIco.calcTokens(msg.value, TOKENS_PER_ETHER));
-            
-        token.mint(tokens);
+        uint will_be_sold = was_sale + tokens;
+        require(will_be_sold <= MAX_SALE);
+
+        owner.transfer(msg.value);
         token.transfer(msg.sender, tokens);
+        was_sale = was_sale + tokens;
     }
 
     // Close ICO
@@ -333,8 +349,63 @@ contract TokenIco is FrozenTokenIco {
         require (start != 0);
         require(!is_closed);
         
-        token.mint(hIco.calcPayToCommand(token.totalSupply(), BOUNTY_TOKEN_PERCENT));
-
+        ico = new Ico(token, owner, was_sale);
+        token.changeOwner(ico);
         is_closed = true;
+    }
+}
+
+// ICO contract for sale tokens from emission contract
+contract Ico is FrozenTokenIco, HelperIco {
+    using SafeMath for uint;
+
+    uint  private was_sale = 0;
+    uint  private was_sale_pre_ico;
+
+    uint   constant SALE_PERIOD =          90 days;    // period ICO
+    uint   constant MIN_INVEST =           0.1 ether; // minimum invest
+    uint   constant BONUS =                1000000000000000; // 10 000 000 bonus 25%
+    uint            TOKENS_PER_ETHER =     29800000000;  // X tokens per 1 ether
+    uint   constant BONUS_PERCENT =        25; // bonus percent
+    uint   constant MAX_SALE =             3500000000000000; // 35_000_000 will be sold 
+    
+    // Constructor
+    function Ico(Token _token, address _owner, uint _was_sale_pre_ico) {
+        sale_period =      SALE_PERIOD;
+        owner =            _owner;
+        token =            _token;
+        was_sale_pre_ico = _was_sale_pre_ico;
+    }
+
+    // function pay tokens
+    function() payable whileIco {
+        require(msg.value >= MIN_INVEST);
+
+        uint tokens = 
+            bonus(
+                    was_sale, 
+                    calcTokens(msg.value, TOKENS_PER_ETHER),
+                    BONUS,
+                    BONUS_PERCENT
+                );
+
+        uint will_be_sold = was_sale_pre_ico + was_sale + tokens;
+        require(will_be_sold <= MAX_SALE);
+
+        owner.transfer(msg.value);
+        token.transfer(msg.sender, tokens);
+        was_sale = was_sale + tokens;
+    }
+
+    // Close ICO
+    function closeIco() onlyOwner {
+        require (start != 0);
+        require(!is_closed);
+        is_closed = true;
+    }
+
+    // Change price 1ETH = N WLTX
+    function changeCountTokenPerEther(uint _value)onlyOwner whileIco {
+        TOKENS_PER_ETHER = _value;
     }
 }
