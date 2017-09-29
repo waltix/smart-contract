@@ -316,7 +316,7 @@ contract PreIco is BaseICO, HelperIco {
 
      function PreIco() {
         sale_period = SALE_PERIOD;
-        token = new Token(TOKEN_NAME, TOKEN_NAME, TOKEN_DECIMALS, TOTAL);
+        token = new Token(TOKEN_NAME, TOKEN_SYMBOL, TOKEN_DECIMALS, TOTAL);
     }
 
     // Change price 1ETH = N WLTX
